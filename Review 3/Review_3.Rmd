@@ -1,0 +1,256 @@
+---
+title: <center><b>CSE3021 - Review 3</b></center>
+output: html_document
+---
+
+#### Import necessary libraries
+```{r}
+# Libraries
+library(readr)        # reads in CSV
+library(ggplot2)      # plot library
+library(tidyverse)    # for data manipulation
+library(repr)         # resize graphs
+library(wordcloud)
+library(tidytext)     # unnest_tokens
+library(reshape2)     # acast
+```
+
+#### Print first few columns of all dataset to be used
+```{r}
+data <- read_csv("covid-19-all.csv", show_col_types = FALSE)
+
+data <- data %>% rename(c("Country" = "Country/Region", "State" = "Province/State"))
+
+tweets <- read_csv("covid19_tweets.csv", show_col_types = FALSE) 
+
+worldcities <- read_csv("worldcitiespop.csv", show_col_types = FALSE)
+
+# Inspect data
+data %>% head(5)
+
+# Inspect tweet data
+tweets %>% head(5)
+
+worldcities %>% head(5)
+```
+
+#### Print the dimensions of the dataset
+```{r}
+print(dim(data))
+print(dim(tweets))
+print(dim(worldcities))
+```
+
+#### Print the cases where there is at least one NULL value.
+```{r}
+head(data[!complete.cases(data),], 5)
+head(tweets[!complete.cases(tweets),], 5)
+head(worldcities[!complete.cases(worldcities),], 5)
+```
+#### Number of rows containing at least one NULL value.
+```{r}
+sum(is.na(data))
+sum(is.na(tweets))
+sum(is.na(worldcities))
+```
+
+#### Statistical summary of the datasets.
+```{r}
+summary(data)
+summary(tweets)
+summary(worldcities)
+```
+
+```{r}
+data %>%
+    select(Date, Confirmed, Recovered, Deaths) %>%
+    gather(key = group_var, value = "Cases", -Date, na.rm = TRUE) %>%
+    group_by(Date, group_var)%>%
+    summarise(n = sum(Cases))
+    
+```
+
+#### Plot number of reported cases with time graph
+```{r}
+options(repr.plot.width = 25, repr.plot.height = 9)
+
+data %>%
+    select(Date, Confirmed, Recovered, Deaths) %>%
+    gather(key = group_var, value = "Cases", -Date, na.rm = TRUE) %>%
+    group_by(Date, group_var)%>%
+    summarise(n = sum(Cases)) %>% 
+
+    ggplot(aes(x = Date, y = n, color = group_var)) + 
+    geom_line(size = 1) +
+    scale_y_continuous(labels = scales::comma) +
+    scale_x_date(date_breaks = "months" , date_labels = "%b-%y") +
+    labs(title = "Reported Cases in Time", y = "Frequency")
+```
+
+#### Plot top countries against case type
+```{r}
+options(repr.plot.width = 40, repr.plot.height = 9)
+
+data %>%
+    select(Country, Confirmed, Recovered, Deaths) %>%
+    gather(key = group_var, value = "Cases", -Country, na.rm = TRUE) %>% #tidyr
+    group_by(Country, group_var) %>%
+    summarise(n = sum(Cases)) %>%
+    group_by(group_var) %>% 
+    arrange(desc(n)) %>% 
+    slice(1:5) %>%
+
+    ggplot(aes(x = Country, y = n, fill=Country)) +
+    geom_col() +
+    facet_grid(~group_var, scales = "free") +
+    scale_y_continuous(labels = scales::comma) +
+    geom_label(aes(label=round(n/1000000, 1)), size=2, fill="white") +
+    labs(title = "Top Countries per Case Type", subtitle = "Numbers in Millions") + theme(axis.text.x = element_text(angle = 30, vjust = 1, hjust = 1))
+```
+
+#### Plot top states against case type
+```{r}
+options(repr.plot.width = 40, repr.plot.height = 9)
+
+data %>%
+    filter(State != c("NA", "Unknown")) %>%
+    select(State, Confirmed, Recovered, Deaths) %>%
+    gather(key = group_var, value = "Cases", -State, na.rm = TRUE) %>%
+    group_by(State, group_var) %>%
+    summarise(n = sum(Cases)) %>%
+    arrange(desc(n)) %>%
+    group_by(group_var) %>% 
+    slice(1:5) %>%
+
+    ggplot(aes(x = State, y = n, fill = State)) +
+    geom_bar(stat = "identity") +
+    facet_grid(~ group_var, scales = "free") +
+    scale_y_continuous(labels = scales::comma) +
+    geom_label(aes(label=round(n/1000000, 1)), size=3, fill="white") +
+    labs(title = "Top States per Case Type", subtitle = "Numbers in Millions") + theme(axis.text.x = element_text(angle = 30, vjust = 1, hjust = 1))
+```
+
+#### Import lexicons dataset.
+```{r}
+polarity <- read_csv("polarity.csv", show_col_types = FALSE)
+bing <- read_csv("Bing.csv", show_col_types = FALSE)
+nrc <- read_csv("NRC.csv", show_col_types = FALSE)
+head(polarity, 5)
+head(bing, 5)
+head(nrc, 5)
+```
+
+#### Number of users grouped by user location.
+```{r}
+tweets %>%
+  group_by(user_location) %>%
+  summarise(n = n()) %>%
+  arrange(desc(n))
+```
+
+
+#### Break the tweets into words to extract sentiment of the tweet.
+```{r}
+# Breaks the tweet into words on each row in order to append the "sentiment" of the tweet
+token_tweets <- tweets %>%
+    unnest_tokens(word, text)
+head(token_tweets$word, 5)
+head(tweets$text, 5)
+```
+
+#### Plot number of tweets with respect to time.
+```{r}
+options(repr.plot.width=15, repr.plot.height=9)
+
+tweets %>% 
+    select(date) %>%
+    group_by(date) %>% 
+    summarize(n = n()) %>%
+
+    ggplot(aes(x=date, y=n)) + 
+    geom_line(size=0.7) +
+    labs(title = "Number of Tweets with respect to time", subtitle = "Year: 2020", y = "Frequency", x = "Date")
+```
+
+#### Number of tokens with respect to intensity.
+```{r}
+options(repr.plot.width=15, repr.plot.height=9)
+
+token_tweets %>% 
+  # Count how many words per value
+  inner_join(polarity, "word") %>% 
+  group_by(polarity) %>% 
+  summarise(count=n()) %>%
+  
+  # Plot
+  ggplot(aes(x=polarity, y=count)) +
+  geom_col(width = 0.5, fill="blue") +
+  geom_label(aes(label=count), size=3) +
+  scale_x_continuous(breaks=seq(-5, 5, 1)) +
+  labs(x="Score", y="Frequency", title="Word count for intensity of sentiment")
+```
+
+#### Sentiment Analysis
+```{r}
+options(repr.plot.width=30, repr.plot.height=30)
+
+token_tweets %>%
+    inner_join(bing, "word") %>%
+    count(word, sentiment) %>% 
+    acast(word~sentiment, value.var = "n", fill=0) %>% 
+  
+    # wordcloud
+    comparison.cloud(max.words = 200, title.size = 2, scale = c(3,.5))
+```
+
+#### Primary Emotions Analysis
+```{r}
+options(repr.plot.width=15, repr.plot.height=9)
+
+token_tweets %>% 
+    inner_join(nrc, "word") %>%
+    filter(!sentiment %in% c("positive", "negative")) %>% 
+    count(sentiment) %>% 
+
+    ggplot(aes(x=sentiment, y=n)) +
+    geom_col(aes(fill=n), show.legend=F) +
+    geom_label(aes(label=n), size=3, fill="white") +
+    labs(x="Sentiment", y="Frequency", title="Overall Mood in Tweets")
+```
+
+#### Top emotions and top 10 words depicting them.
+```{r}
+options(repr.plot.width=15, repr.plot.height=9)
+
+token_tweets %>% 
+  inner_join(nrc, "word") %>% 
+  count(sentiment, word) %>%
+  group_by(sentiment) %>% 
+  arrange(desc(n)) %>% 
+  slice(1:10) %>% 
+  
+  # Plot:
+  ggplot(aes(x=word, y=n)) +
+  geom_col(aes(fill=sentiment), show.legend = F) +
+  labs(theme(axis.text.y = element_text(angle = 30, vjust = 1, hjust = 1))) +
+  facet_wrap(~sentiment, scales = "free", nrow = 2, ncol = 5) +
+  labs(x="Word", y="Frequency", title="Emotions and most common words representing them") +
+  coord_flip()
+```
+
+#### Words with highest polarity for postive and negative tweets.
+```{r}
+token_tweets %>% 
+  # Using word and value, count number of times we come across the word
+  inner_join(polarity, "word") %>% 
+  count(word, polarity) %>% 
+  # Add polarity label; Negative/Positive
+  mutate(Intensity = n * polarity, sentiment = ifelse(Intensity <= 0, "Negative", "Positive")) %>%
+  arrange(desc(abs(Intensity))) %>% 
+  head(15)  %>% 
+  
+  ggplot(aes(x=word, y=Intensity, fill=sentiment)) +
+  geom_col(aes(fill=sentiment), show.legend = F) +
+  scale_y_continuous(breaks=seq(-10000, 10000, 1000)) +
+  labs(x="Word", y="Intensity (count xpolarity)", title="Words with highest polarity in positive and negative sentiments")
+```
